@@ -220,9 +220,16 @@ class Policy(nn.Module):
         """
         Pre-process proprioception-related inputs, e.g. normalizing states
         """
+        
+        if domain == 'ecg_dataset':
+            returndata = {'ecg': data}
+            return returndata
+            
+        
+        
         if self.stem_spec.normalize_state and "state" in data:
             data["state"] = self.normalizer[domain]["state"].normalize(data["state"])
-
+        print(1)
         if "prev_actions" in data:
             data["prev_actions"] = self.normalizer[domain]["action"].normalize(data["prev_actions"])
 
@@ -299,15 +306,19 @@ class Policy(nn.Module):
         """Compute the loss for the training loop forward pass.
         """
         self.train_mode = True
+        
         domain, data = batch["domain"][0], batch["data"]
+        print
+        data = data.to('cuda')
         features = self.forward_features(domain, data)
 
         # normalize the labels
-        if domain in self.normalizer:
-            data["action"] = self.normalizer[domain]["action"].normalize(data["action"])
+        #if domain in self.normalizer:
+        #    data["action"] = self.normalizer[domain].normalize(batch['label'])
 
         # head pass
-        loss = self.heads[domain].compute_loss(features, data)
+        label = {"action": batch["label"].to('cuda')}
+        loss = self.heads[domain].compute_loss(features, label)
         return loss
 
     def forward(self, domain: str, data: dict):

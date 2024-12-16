@@ -1,6 +1,6 @@
 seed: 42
 output_dir: ${hydra:runtime.output_dir}
-domains: mujoco_metaworld # domains to train on
+domains: ecg_dataset
 wb_tag: "default" # wandb tag
 log_interval: 10 # how many steps before logging to wandb
 script_name: "" # log the running script
@@ -49,6 +49,37 @@ dataset:
   proprioception_expand: False # expand proprioception to use multiple tokens
   proprioception_expand_dim: 32 # expand proprioception dimensions
 
+dataset_ecg:
+  _target_: hpt.dataset.local_traj_dataset.LocalTrajDataset
+  horizon: 1  # Adjust if necessary
+  val_ratio: 0.1  # Use your validation split ratio
+  episode_cnt: 0  # Not applicable for ECG data
+  step_cnt: 0  # Not applicable for ECG data
+  action_horizon: 0  # ECG data doesn't have actions
+  observation_horizon: 1000  # Set to 1000 for your data
+  use_disk: False
+  data_ratio: 1
+  normalize_state: True  # Set to True if you want to normalize the data
+  action_multiple_horizon: False  # No action in ECG data
+  random_mask_obs: False  # Set to False unless you want to mask observations
+  proprioception_expand: False
+
+network_ecg:
+  _target_: hpt.models.policy.Policy
+  embed_dim: 128  # Adjust as needed
+  num_blocks: 4  # You may reduce this for a smaller model
+  num_heads: 4  # Adjust based on embed_dim
+  action_horizon: 0  # No actions to predict
+  drop_path: 0.1 # drop path in the trunk transformer
+  use_modality_embedding: True # add trainable modality position tokens
+  use_domain_embedding: False # whether to add domain-specific trainable parameters
+  observation_horizon: ${dataset_ecg.horizon} # the observation history
+  token_postprocessing: "mean" # maxpool or meanpool the tokens
+  cross_stem_attention: True # use cross attention to combine state and action
+  weight_init_style: 'pytorch' # weight init
+  no_trunk: False # ignore trunk
+  finetune_encoder: True # whether to finetune encoders
+
 # trunk transformer config
 network:
   _target_: hpt.models.policy.Policy
@@ -65,6 +96,39 @@ network:
   weight_init_style: 'pytorch' # weight init
   no_trunk: False # ignore trunk
   finetune_encoder: False # whether to finetune encoders
+
+stem_ecg:
+  modalities: ['ecg'] # 'language'
+  modality_embed_dim: ${network_ecg.embed_dim}
+  normalize_state: ${dataset_ecg.normalize_state} # normalize state vectors
+  state_embedding_dim: 1 # dimension of positional encoding for state
+  cross_attention: True # whether to use cross attention or not
+  precompute_feat: True # whether to use precomputed features. if not, will finetune.
+  image_encoder: ${dataset.image_encoder} # what image encoder to use
+  crossattn_dim_head: 64 # for cross attention modules
+  crossattn_heads: 8 # number of heads in cross attention
+  crossattn_modality_dropout: 0.1 # the dropout ratio for cross attention
+  num_blocks: 1 # number of blocks for stem transformer's cross and self attention
+  observation_horizon: ${dataset_ecg.observation_horizon} # observation horizon
+  masked_autoencoding: False # random mask encoding and then reconstruction
+  random_horizon_masking: True # whether to randomize observation input length
+  add_pos_embedding_to_state: False # positional embedding for the state
+  crossattn_latent:
+    ecg: 16
+  ecg:
+    _target_: hpt.models.policy_stem.MLP
+    input_dim: 12  # Number of ECG leads
+    output_dim: ${network_ecg.embed_dim}
+    widths: [128, 128]
+
+head_ecg:
+  _target_: hpt.models.policy_head.MLP
+  input_dim: ${network_ecg.embed_dim}
+  output_dim: 5  # Number of classes
+  widths: [128]
+  tanh_end: False  # Not needed for classification
+  normalize_action: False
+
 
 # stem network for different modalities
 stem:
@@ -133,7 +197,7 @@ val_dataloader:
 
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 1.0e-5 # 1e-4
+  lr: 1.0e-4 # 1e-4
   eps: 1.0e-7
   weight_decay: 1e-4
 
@@ -156,5 +220,5 @@ train:
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
   pretrained_dir: "" # pretrained model path for testing
-  freeze_trunk: True # whether to freeze the trunk during finetuning
+  freeze_trunk: False # whether to freeze the trunk during finetuning
   wandb_pretrained_dir: "" # use models pretrained on wandb

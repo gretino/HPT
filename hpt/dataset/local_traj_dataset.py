@@ -17,8 +17,14 @@ import cv2
 import traceback
 from collections import defaultdict
 
-def select_image(observation, target_shape=(224, 224), normalize: bool = False, 
-                verbose: bool = False, resize: bool = True):
+
+def select_image(
+    observation,
+    target_shape=(224, 224),
+    normalize: bool = False,
+    verbose: bool = False,
+    resize: bool = True,
+):
     """
     select a canonical frame as image observation. the order is as follows:
     preferably we use wrist camera view
@@ -71,7 +77,7 @@ def process_dataset_step(
     use_multiview: bool = False,
     use_ds: bool = False,
     image_encoder: str = "resnet",
-    data_augment_ratio: float = 1.0, 
+    data_augment_ratio: float = 1.0,
 ):
     """map dataset-specific key and values to a unified format"""
     step_dict = {}
@@ -94,17 +100,23 @@ def process_dataset_step(
             # get image and text embeddings together from CLIP.
             image_embeddings = []
             for image in images:
-                step_dict["language"], image_embedding = utils.get_clip_embeddings(image, language)
+                step_dict["language"], image_embedding = utils.get_clip_embeddings(
+                    image, language
+                )
                 image_embeddings.append(image_embedding)
                 if not use_multiview:
                     break
         else:
             # the default setting is to do separate encoding
-            step_dict["language"] = utils.get_t5_embeddings(language, per_token=True, device="cpu")
+            step_dict["language"] = utils.get_t5_embeddings(
+                language, per_token=True, device="cpu"
+            )
             image_embeddings = []
             for image in images:
                 image_embeddings.append(
-                    utils.get_image_embeddings(image, image_encoder, downsample=use_ds, device="cpu")
+                    utils.get_image_embeddings(
+                        image, image_encoder, downsample=use_ds, device="cpu"
+                    )
                 )
                 if not use_multiview:
                     break
@@ -113,11 +125,15 @@ def process_dataset_step(
                 step_dict["image"] = np.concatenate(image_embeddings, axis=0)
 
     else:
-        images = [utils.normalize_image_numpy(im) for im in select_image(step["observation"])]
+        images = [
+            utils.normalize_image_numpy(im) for im in select_image(step["observation"])
+        ]
         if len(images) > 0:
             image = np.concatenate(images, axis=0)
             step_dict["image"] = image
-        step_dict["language"] = utils.tokenize_language((step["language_instruction"]), per_token=True)
+        step_dict["language"] = utils.tokenize_language(
+            (step["language_instruction"]), per_token=True
+        )
 
     if "image" in step_dict:
         step_dict["image"] = step_dict["image"].astype("float32")
@@ -184,25 +200,35 @@ class LocalTrajDataset:
         self.use_multiview = use_multiview
         self.normalize_state = normalize_state
         self.downsample_vision = downsample_vision
-        self.dataset_name_withpostfix = self.dataset_name + dataset_encoder_postfix + dataset_postfix
+        self.dataset_name_withpostfix = (
+            self.dataset_name + dataset_encoder_postfix + dataset_postfix
+        )
 
         if use_multiview:
             self.dataset_name_withpostfix = self.dataset_name_withpostfix + "_multiview"
         if downsample_vision:
             self.dataset_name_withpostfix = self.dataset_name_withpostfix + "_ds"
         if data_augment_ratio > 1:
-            self.dataset_name_withpostfix = self.dataset_name_withpostfix + f"_aug_{data_augment_ratio}"
+            self.dataset_name_withpostfix = (
+                self.dataset_name_withpostfix + f"_aug_{data_augment_ratio}"
+            )
 
         dataset_path = "data/zarr_" + self.dataset_name_withpostfix  # match RTX format
-        load_from_cache = os.path.exists(dataset_path + "/data/action") and not regenerate
-        print(f"\n\n >>>dataset_path: {dataset_path} load_from_cache: {load_from_cache} \n\n")
+        load_from_cache = (
+            os.path.exists(dataset_path + "/data/action") and not regenerate
+        )
+        print(
+            f"\n\n >>>dataset_path: {dataset_path} load_from_cache: {load_from_cache} \n\n"
+        )
 
         if use_disk or not os.path.exists(dataset_path):  # first time generation
             if load_from_cache:
                 self.replay_buffer = ReplayBuffer.create_from_path(dataset_path)
             else:
                 os.system(f"rm -rf {dataset_path}")
-                self.replay_buffer = ReplayBuffer.create_empty_zarr(storage=zarr.DirectoryStore(path=dataset_path))
+                self.replay_buffer = ReplayBuffer.create_empty_zarr(
+                    storage=zarr.DirectoryStore(path=dataset_path)
+                )
         else:
             if load_from_cache:
                 self.replay_buffer = ReplayBuffer.copy_from_path(dataset_path)
@@ -288,7 +314,6 @@ class LocalTrajDataset:
 
                 for dataset_step in dataset_steps:
                     for key, val in dataset_step.items():
-                         
                         data[key].append(val)
                     traj_end_idx += 1
 
@@ -310,7 +335,9 @@ class LocalTrajDataset:
             if traj_end_idx > self.step_cnt:
                 break
 
-        print(f"Avg {len(traj_len)} traj length: {np.mean(traj_len):.1f} Total: {prev_traj_end_idx}")
+        print(
+            f"Avg {len(traj_len)} traj length: {np.mean(traj_len):.1f} Total: {prev_traj_end_idx}"
+        )
         print(f"dataset time: {time.time() - start_time:.3f}")
 
     def _sample_to_data(self, sample):
@@ -331,13 +358,17 @@ class LocalTrajDataset:
             seed (int): The random seed for splitting the dataset.
         """
         # split into train and test sets
-        self.val_mask = get_val_mask(n_episodes=self.replay_buffer.n_episodes, val_ratio=val_ratio, seed=seed)
+        self.val_mask = get_val_mask(
+            n_episodes=self.replay_buffer.n_episodes, val_ratio=val_ratio, seed=seed
+        )
         self.train_mask = ~self.val_mask
         if self.train_mask.sum() == 0:
             self.train_mask = self.val_mask
 
         # considering hyperparameters and masking
-        n_episodes = int(self.data_ratio * min(self.episode_cnt, self.replay_buffer.n_episodes))
+        n_episodes = int(
+            self.data_ratio * min(self.episode_cnt, self.replay_buffer.n_episodes)
+        )
         self.val_mask[n_episodes:] = False
         self.train_mask[n_episodes:] = False
 
@@ -386,7 +417,9 @@ class LocalTrajDataset:
         for key, val in sample.items():
             if key != "action":
                 if self.proprioception_expand and key == "state":
-                    sample[key] = np.tile(sample[key][..., None], (1, 1, self.proprioception_expand_dim))                
+                    sample[key] = np.tile(
+                        sample[key][..., None], (1, 1, self.proprioception_expand_dim)
+                    )
                 if key == "language":
                     sample[key] = val[:1]
                 else:
@@ -395,16 +428,21 @@ class LocalTrajDataset:
             else:
                 # future actions
                 sample["action"] = val[
-                    self.observation_horizon - 1 : self.action_horizon + self.observation_horizon - 1
+                    self.observation_horizon - 1 : self.action_horizon
+                    + self.observation_horizon
+                    - 1
                 ]
         return {"domain": self.dataset_name, "data": sample}
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import torch
     import tqdm
-    
+
     dataset = LocalTrajDataset()
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=4, shuffle=True, num_workers=2)
+    dataloader = torch.utils.data.DataLoader(
+        dataset, batch_size=4, shuffle=True, num_workers=2
+    )
 
     for batch in tqdm.tqdm(dataloader):
-        pass    
+        pass
